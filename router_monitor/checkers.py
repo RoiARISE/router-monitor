@@ -46,7 +46,9 @@ def arp_check(ip: str, interface: str, timeout: int = 2) -> Optional[bool]:
             timeout=timeout + 2,
         )
         return result.returncode == 0
-    except (subprocess.TimeoutExpired, Exception):
+    except subprocess.TimeoutExpired:
         return None
     except FileNotFoundError:
+        return None
+    except Exception:
         return None
