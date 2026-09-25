@@ -1,0 +1,40 @@
+ping_targets:
+  router_lan_ip: "192.168.0.1"
+  external:
+    - "1.1.1.1"
+    - "8.8.8.8"
+
+thresholds:
+  fail_threshold: 6
+  cooldown_seconds: 90
+  reboot_lock_seconds: 300
+  max_retry: 3
+  verify_success_required: 3
+  failed_resume_seconds: 300
+
+interval_seconds: 30
+
+power_cycle:
+  off_duration_seconds: 30
+
+home_assistant:
+  base_url: "http://localhost:8123"
+  entity_id: "switch.switchbot_plug_router"
+  # token is loaded from .env (HA_TOKEN)
+  request_timeout_seconds: 10
+  retries: 3
+  retry_interval_seconds: 5
+
+notify:
+  discord_enabled: true
+  misskey_enabled: false
+
+logging:
+  events_path: "data/events.jsonl"
+  reboots_path: "data/reboots.jsonl"
+
+arp:
+  # ARPチェックは診断目的のみです。ここでの失敗が再起動の判断に
+  # 影響を与えることは決してありません（デバイスが正当な理由でARPリクエストに応答しない場合があります）。
+  enabled: false
+  interface: "eth0"

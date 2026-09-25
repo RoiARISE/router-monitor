@@ -1,0 +1,17 @@
+# secrets & local config
+.env
+config.yaml
+
+# runtime data
+data/*.jsonl
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# misc
+.DS_Store
+.pytest_cache/
+

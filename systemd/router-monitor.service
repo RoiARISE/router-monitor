@@ -1,0 +1,45 @@
+[Unit]
+Description=TL-WR902AC Router Monitor and Auto-Recovery
+After=network.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ========================================================================
+# ⚠️  以下の 5 箇所を自分の環境に合わせて書き換えてください
+#
+#   確認コマンド:
+#     whoami  → User / Group に設定するユーザー名
+#     pwd     → このプログラムがある絶対パス（WorkingDirectory に設定）
+#
+#   setup.sh を使った場合、これらのパスは自動で書き換えられます。
+# ========================================================================
+
+# ↓ このプログラムがあるディレクトリの絶対パス（`pwd` の出力結果）
+WorkingDirectory=/path/to/routor-monitor
+
+# ↓ Python のパスとプログラムの絶対パスを書き換える（パスは WorkingDirectory と同じ）
+ExecStart=/usr/bin/python3 /path/to/routor-monitor/main.py --config /path/to/routor-monitor/config.yaml --env /path/to/routor-monitor/.env
+
+Restart=always
+RestartSec=10
+
+# ↓ `whoami` コマンドで確認したユーザー名に書き換える
+User=your_username
+Group=your_username
+
+# Needed for arping (ICMP/ARP raw sockets) without running as root.
+# Remove if config.arp.enabled is false.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+
+# Hardening (optional but recommended)
+NoNewPrivileges=true
+ProtectSystem=strict
+
+# ↓ data/ ディレクトリの絶対パス（WorkingDirectory + /data）
+ReadWritePaths=/path/to/routor-monitor/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,2 @@
+# data/ ディレクトリを Git に含めつつ、中の .jsonl ファイルは管理外にするための空ファイル
+# .gitignore の "data/*.jsonl" によって data/ 内の jsonl は除外される
