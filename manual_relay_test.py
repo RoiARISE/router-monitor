@@ -25,9 +25,13 @@ from router_monitor.relay.home_assistant import (
 
 
 def main() -> int:
+    project_root = Path(__file__).resolve().parent
+    default_config = str(project_root / "config.yaml")
+    default_env = str(project_root / ".env")
+
     parser = argparse.ArgumentParser(description="RelayController 実機テスト")
-    parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--env", default=".env")
+    parser.add_argument("--config", default=default_config)
+    parser.add_argument("--env", default=default_env)
     parser.add_argument(
         "--off-duration",
         type=int,

@@ -11,7 +11,26 @@ from pathlib import Path
 from typing import List, Optional
 
 import yaml
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(dotenv_path=None, override=True):
+        if not dotenv_path:
+            return
+        p = Path(dotenv_path)
+        if not p.is_file():
+            return
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if override or k not in os.environ:
+                    os.environ[k] = v
 
 
 @dataclass
@@ -78,14 +97,36 @@ class Config:
     arp: ArpConfig = field(default_factory=ArpConfig)
 
 
-def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Config:
-    load_dotenv(dotenv_path=env_path, override=True)
+def _resolve_path(path_str: str, base_dir: Optional[Path] = None) -> Path:
+    p = Path(path_str)
+    if p.is_file():
+        return p.resolve()
+    if not p.is_absolute():
+        if base_dir and (base_dir / p).is_file():
+            return (base_dir / p).resolve()
+        project_root = Path(__file__).resolve().parent.parent
+        if (project_root / p).is_file():
+            return (project_root / p).resolve()
+    return p.resolve()
 
-    with open(config_path, "r", encoding="utf-8") as f:
+
+def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Config:
+    project_root = Path(__file__).resolve().parent.parent
+
+    resolved_env = _resolve_path(env_path, project_root)
+    load_dotenv(dotenv_path=resolved_env, override=True)
+
+    resolved_config = _resolve_path(config_path, project_root)
+    if not resolved_config.is_file():
+        raise FileNotFoundError(f"設定ファイルが見つかりません: {config_path}")
+
+    with open(resolved_config, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
     if raw is None:
         raise ValueError(f"{config_path} が空であるか、不正な形式です")
+
+    base_dir = resolved_config.parent
 
     try:
         ping_targets = PingTargets(
@@ -127,9 +168,16 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
         )
 
         logging_raw = raw["logging"]
+        events_p = Path(logging_raw["events_path"])
+        if not events_p.is_absolute():
+            events_p = base_dir / events_p
+        reboots_p = Path(logging_raw["reboots_path"])
+        if not reboots_p.is_absolute():
+            reboots_p = base_dir / reboots_p
+
         logging_cfg = LoggingConfig(
-            events_path=logging_raw["events_path"],
-            reboots_path=logging_raw["reboots_path"],
+            events_path=str(events_p),
+            reboots_path=str(reboots_p),
         )
 
         arp_raw = raw.get("arp", {})

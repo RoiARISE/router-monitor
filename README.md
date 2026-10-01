@@ -2,7 +2,10 @@
 
 ルーターの死活監視と自動再起動を行うシステムです。
 ルーターのLAN IPおよび外部（インターネット）のIPアドレスへ定期的にPingを送信し、通信断を検知した場合に、Home Assistant の API 経由でスマートプラグを制御してルーターの電源を自動で物理的に再起動（パワーサイクル）します。
-復旧状況や日次の安定性レポートは、Discord および Misskey へ自動で通知されます。
+設定を行えば、復旧状況や日次の安定性レポートなどをDiscord および Misskey へ自動で通知できます。
+
+> [!NOTE]
+> このREADMEは私にとっての備忘録としての役割もあります。そのため書いている内容が細かいですが、自分以外の人が使うということは大きくは考慮しておりません。ご了承ください。
 
 ## 主な機能
 
@@ -36,7 +39,7 @@
 | 必要なもの | 備考 |
 |---|---|
 | **Home Assistant** が同一 LAN で稼働していること | Raspberry Pi などで動かすのが一般的 |
-| **スマートプラグ**（例: SwitchBot プラグミニなど、Bluetoothで操作できるものを推奨） | Home Assistant から制御できる状態にしておくこと |
+| **スマートプラグ**（例: SwitchBot プラグミニ推奨、Bluetoothで操作できるものを推奨） | Home Assistant から制御できる状態にしておくこと |
 
 > [!NOTE]
 > Home Assistant のセットアップ方法は本ドキュメントの範囲外です。
@@ -228,19 +231,19 @@ pwd
 ```ini
 [Service]
 # ↓ このディレクトリのパスを「pwd の出力結果」に書き換える
-WorkingDirectory=/home/username/routor_reboot_system/routor-monitor
+WorkingDirectory=/home/username/router_reboot_system/router-monitor
 
 # ↓ 2箇所ある /home/username/... を自分の環境のパスに書き換える
-ExecStart=/usr/bin/python3 /home/username/routor_reboot_system/routor-monitor/main.py \
-    --config /home/username/routor_reboot_system/routor-monitor/config.yaml \
-    --env /home/username/routor_reboot_system/routor-monitor/.env
+ExecStart=/usr/bin/python3 /home/username/router_reboot_system/router-monitor/main.py \
+    --config /home/username/router_reboot_system/router-monitor/config.yaml \
+    --env /home/username/router_reboot_system/router-monitor/.env
 
 # ↓ User と Group を「whoami の出力結果」に書き換える
 User=username
 Group=username
 
 # ↓ data/ ディレクトリのパスも書き換える
-ReadWritePaths=/home/username/routor_reboot_system/routor-monitor/data
+ReadWritePaths=/home/username/router_reboot_system/router-monitor/data
 ```
 
 > [!TIP]
@@ -275,31 +278,31 @@ journalctl -u router-monitor -f
 
 ```bash
 # ~/.bashrc に追記（一度だけ実行）
-echo "alias routor='python3 ~/routor_reboot_system/routor-monitor/query.py'" >> ~/.bashrc
+echo "alias router='python3 ~/router_reboot_system/router-monitor/query.py'" >> ~/.bashrc
 source ~/.bashrc
 ```
 
-設定後はどこからでも `routor` コマンドで操作できます。
+設定後はどこからでも `router` コマンドで操作できます。
 
 ```bash
 # 全体サマリー（再起動回数・今日の通信安定性）
-routor
+router
 # または: python3 query.py
 
 # 今日の安定レポート
-routor --today
+router --today
 
 # 指定日のレポート
-routor --date 2026-07-01
+router --date 2026-07-01
 
 # 直近30件のイベントログ（ping_cycle 正常分を除く）
-routor --events
+router --events
 
 # 直近50件 ─ ping_cycle も含む全件
-routor --events 50 --all
+router --events 50 --all
 
 # 再起動の全履歴
-routor --reboots
+router --reboots
 ```
 
 ---
@@ -309,7 +312,7 @@ routor --reboots
 ブラウザで視覚的に確認できます。ターミナルで起動してブラウザを開くだけです。
 
 ```bash
-cd ~/routor_reboot_system/routor-monitor
+cd ~/router_reboot_system/router-monitor
 python3 dashboard.py                 # http://localhost:8088 で起動 (ローカル限定)
 python3 dashboard.py --host 0.0.0.0  # 同一LAN内の別端末から開く場合
 python3 dashboard.py --port 9000     # ポートを変更する場合

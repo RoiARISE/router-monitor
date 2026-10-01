@@ -17,10 +17,10 @@ Type=simple
 # ========================================================================
 
 # ↓ このプログラムがあるディレクトリの絶対パス（`pwd` の出力結果）
-WorkingDirectory=/path/to/routor-monitor
+WorkingDirectory=/path/to/router-monitor
 
 # ↓ Python のパスとプログラムの絶対パスを書き換える（パスは WorkingDirectory と同じ）
-ExecStart=/usr/bin/python3 /path/to/routor-monitor/main.py --config /path/to/routor-monitor/config.yaml --env /path/to/routor-monitor/.env
+ExecStart=/usr/bin/python3 /path/to/router-monitor/main.py --config /path/to/router-monitor/config.yaml --env /path/to/router-monitor/.env
 
 Restart=always
 RestartSec=10
@@ -39,7 +39,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 
 # ↓ data/ ディレクトリの絶対パス（WorkingDirectory + /data）
-ReadWritePaths=/path/to/routor-monitor/data
+ReadWritePaths=/path/to/router-monitor/data
 
 [Install]
 WantedBy=multi-user.target

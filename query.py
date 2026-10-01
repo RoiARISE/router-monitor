@@ -251,6 +251,10 @@ def cmd_reboots(config) -> None:
 # エントリーポイント
 # ---------------------------------------------------------------------------
 def main() -> None:
+    project_root = Path(__file__).resolve().parent
+    default_config = str(project_root / "config.yaml")
+    default_env = str(project_root / ".env")
+
     parser = argparse.ArgumentParser(
         description="router-monitor ログ照会ツール",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -264,8 +268,8 @@ def main() -> None:
             "  python3 query.py --reboots          # 再起動履歴\n"
         ),
     )
-    parser.add_argument("--config",  default="config.yaml")
-    parser.add_argument("--env",     default=".env")
+    parser.add_argument("--config",  default=default_config)
+    parser.add_argument("--env",     default=default_env)
     parser.add_argument("--today",   action="store_true",      help="今日の安定レポートを表示")
     parser.add_argument("--date",    metavar="YYYY-MM-DD",     help="指定日のレポートを表示")
     parser.add_argument("--events",  metavar="N", nargs="?", const=30, type=int,
@@ -276,7 +280,7 @@ def main() -> None:
 
     try:
         config = load_config(args.config, args.env)
-    except ValueError as e:
+    except (ValueError, FileNotFoundError) as e:
         print(red(f"設定読み込みエラー: {e}"))
         sys.exit(1)
 

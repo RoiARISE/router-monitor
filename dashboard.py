@@ -459,16 +459,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
 def main():
     global _config
 
+    project_root = Path(__file__).resolve().parent
+    default_config = str(project_root / "config.yaml")
+    default_env = str(project_root / ".env")
+
     parser = argparse.ArgumentParser(description="router-monitor Web ダッシュボード")
     parser.add_argument("--host",   default="127.0.0.1", help="バインドするホスト名/IP (デフォルト: 127.0.0.1、LAN公開時は 0.0.0.0)")
     parser.add_argument("--port",   type=int, default=8088)
-    parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--env",    default=".env")
+    parser.add_argument("--config", default=default_config)
+    parser.add_argument("--env",    default=default_env)
     args = parser.parse_args()
 
     try:
         _config = load_config(args.config, args.env)
-    except ValueError as e:
+    except (ValueError, FileNotFoundError) as e:
         print(f"設定読み込みエラー: {e}")
         sys.exit(1)
 

@@ -17,6 +17,7 @@ import logging
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 from router_monitor.config import load_config, Config
 from router_monitor.checkers import ping, arp_check
@@ -83,14 +84,18 @@ def run_cycle(
 
 
 def main() -> int:
+    project_root = Path(__file__).resolve().parent
+    default_config = str(project_root / "config.yaml")
+    default_env = str(project_root / ".env")
+
     parser = argparse.ArgumentParser(description="TL-WR902AC auto-recovery monitor")
-    parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--env", default=".env")
+    parser.add_argument("--config", default=default_config)
+    parser.add_argument("--env", default=default_env)
     args = parser.parse_args()
 
     try:
         config = load_config(args.config, args.env)
-    except ValueError as exc:
+    except (ValueError, FileNotFoundError) as exc:
         syslog.error("config error: %s", exc)
         return 1
 

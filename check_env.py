@@ -84,14 +84,16 @@ def check_file_exists(path: str, label: str, copy_from: str = "") -> bool:
         return False
 
 
-def check_data_dir() -> None:
+def check_data_dir(base_dir: Optional[Path] = None) -> None:
     """data/ ディレクトリの存在を確認する。"""
-    if Path("data").is_dir():
+    project_root = Path(__file__).resolve().parent
+    target = (base_dir / "data") if base_dir else (project_root / "data")
+    if target.is_dir() or Path("data").is_dir():
         _ok("data/ ディレクトリが存在します")
     else:
         _warn(
             "data/ ディレクトリが存在しません",
-            hint="`mkdir -p data` を実行してください（起動時に自動作成される場合もあります）",
+            hint=f"`mkdir -p {target}` を実行してください（起動時に自動作成される場合もあります）",
         )
 
 
@@ -352,6 +354,10 @@ def _print_results(quiet: bool) -> int:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    project_root = Path(__file__).resolve().parent
+    default_config = str(project_root / "config.yaml")
+    default_env = str(project_root / ".env")
+
     parser = argparse.ArgumentParser(
         description="router-monitor 起動前チェックツール",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -362,8 +368,8 @@ def main() -> int:
             "  python3 check_env.py --quiet      # エラー・警告のみ表示\n"
         ),
     )
-    parser.add_argument("--config",   default="config.yaml", help="config.yaml のパス（デフォルト: config.yaml）")
-    parser.add_argument("--env",      default=".env",        help=".env のパス（デフォルト: .env）")
+    parser.add_argument("--config",   default=default_config, help="config.yaml のパス（デフォルト: プロジェクトルートの config.yaml）")
+    parser.add_argument("--env",      default=default_env,    help=".env のパス（デフォルト: プロジェクトルートの .env）")
     parser.add_argument("--check-ha", action="store_true",   help="Home Assistant への実際の HTTP 疎通も確認する")
     parser.add_argument("--quiet",    action="store_true",   help="OK 項目を非表示にしてエラー・警告のみ表示する")
     args = parser.parse_args()
@@ -376,7 +382,8 @@ def main() -> int:
     check_file_exists(args.env, ".env", copy_from=".env.example")
 
     # --- data/ ディレクトリ ---
-    check_data_dir()
+    cfg_base_dir = Path(args.config).resolve().parent if config_exists else project_root
+    check_data_dir(cfg_base_dir)
 
     # --- HA_TOKEN ---
     check_ha_token(args.env)
