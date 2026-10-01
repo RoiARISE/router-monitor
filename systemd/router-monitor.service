@@ -16,18 +16,14 @@ Type=simple
 #   setup.sh を使った場合、これらのパスは自動で書き換えられます。
 # ========================================================================
 
-# ↓ このプログラムがあるディレクトリの絶対パス（`pwd` の出力結果）
-WorkingDirectory=/path/to/router-monitor
-
-# ↓ Python のパスとプログラムの絶対パスを書き換える（パスは WorkingDirectory と同じ）
-ExecStart=/usr/bin/python3 /path/to/router-monitor/main.py --config /path/to/router-monitor/config.yaml --env /path/to/router-monitor/.env
+WorkingDirectory=/home/roiarise/program/router_reboot_system/router-monitor
+ExecStart=/usr/bin/python3 /home/roiarise/program/router_reboot_system/router-monitor/main.py --config /home/roiarise/program/router_reboot_system/router-monitor/config.yaml --env /home/roiarise/program/router_reboot_system/router-monitor/.env
 
 Restart=always
 RestartSec=10
 
-# ↓ `whoami` コマンドで確認したユーザー名に書き換える
-User=your_username
-Group=your_username
+User=roiarise
+Group=roiarise
 
 # Needed for arping (ICMP/ARP raw sockets) without running as root.
 # Remove if config.arp.enabled is false.
@@ -38,8 +34,7 @@ CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=true
 ProtectSystem=strict
 
-# ↓ data/ ディレクトリの絶対パス（WorkingDirectory + /data）
-ReadWritePaths=/path/to/router-monitor/data
+ReadWritePaths=/home/roiarise/program/router_reboot_system/router-monitor/data
 
 [Install]
 WantedBy=multi-user.target
