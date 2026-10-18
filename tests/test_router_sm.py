@@ -267,7 +267,10 @@ def test_power_cycle_request_failure_goes_to_failed():
     ok = sm.perform_power_cycle()
     assert ok is False
     assert sm.state == RouterState.FAILED
-    assert sm.retry_count == 1
+    # リレー操作自体の失敗ではルーター再起動枠(retry_count)を消費しない
+    assert sm.retry_count == 0
+    assert sm.relay_fail_count == 1
+
 
 
 def test_upstream_issue_does_not_trigger_router_down():
@@ -375,23 +378,26 @@ def test_suspect_recovers_to_normal_and_resets_retry_count():
         max_retry=3,
     )
 
-    # DOWN → PCR → FAILED
+    # DOWN → PCR → FAILED (リレー操作失敗)
     run_failures(sm, 2)
     sm.tick(router_ok=False, external_ok=False)
     sm.perform_power_cycle()
     assert sm.state == RouterState.FAILED
-    assert sm.retry_count == 1
+    assert sm.retry_count == 0
+    assert sm.relay_fail_count == 1
 
     # failed_resume_seconds 経過で SUSPECT へ復帰
     clock.advance(21)
     sm.tick(router_ok=False, external_ok=False)
     assert sm.state == RouterState.SUSPECT
-    assert sm.retry_count == 1
+    assert sm.retry_count == 0
+    assert sm.relay_fail_count == 1
 
-    # 通信が正常に戻った場合、NORMAL に戻り retry_count が 0 にリセットされる
+    # 通信が正常に戻った場合、NORMAL に戻りリセットされる
     sm.tick(router_ok=True, external_ok=True)
     assert sm.state == RouterState.NORMAL
     assert sm.retry_count == 0
+    assert sm.relay_fail_count == 0
 
 
 def test_down_state_cancels_reboot_when_router_alive_but_external_fails():
@@ -407,3 +413,192 @@ def test_down_state_cancels_reboot_when_router_alive_but_external_fails():
     sm.tick(router_ok=True, external_ok=False)
     assert sm.state == RouterState.NORMAL
     assert relay.calls == 0
+
+
+def test_upstream_prolonged_outage_triggers_reboot():
+    relay = FakeRelay()
+    clock = FakeClock()
+    sm, _ = make_sm(
+        relay=relay,
+        clock=clock,
+        upstream_reboot_after_seconds=600,
+    )
+
+    # 外部のみ不通を開始
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.NORMAL
+
+    # 590秒経過（まだ閾値未満）
+    clock.advance(590)
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.NORMAL
+
+    # 600秒経過（閾値到達）
+    clock.advance(10)
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.DOWN
+    assert sm.reboot_reason == "upstream_prolonged"
+
+    # DOWN の次の tick で、ルーターが生きていても再起動要求へ移行すること
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.POWER_CYCLE_REQUEST
+    assert sm.awaiting_power_cycle is True
+
+    ok = sm.perform_power_cycle()
+    assert ok is True
+    assert relay.calls == 1
+    assert sm.state == RouterState.POWER_CYCLE_WAIT
+
+
+def test_upstream_prolonged_outage_timer_resilient_to_router_flaps():
+    """ルーターの ping が一時的に途切れても（自PCのWiFi切断など）、
+    外部到達が回復しない限りタイマーがリセットされないこと。"""
+    relay = FakeRelay()
+    clock = FakeClock()
+    sm, _ = make_sm(
+        relay=relay,
+        clock=clock,
+        upstream_reboot_after_seconds=600,
+        fail_threshold=6,
+    )
+
+    # 開始: 外部不通
+    sm.tick(router_ok=True, external_ok=False)
+    clock.advance(200)
+
+    # 途中: ルーターへの ping も2回失敗（WiFi瞬断、fail_threshold未満）
+    sm.tick(router_ok=False, external_ok=False)
+    sm.tick(router_ok=False, external_ok=False)
+    clock.advance(200)
+
+    # 再びルーター応答あり、外部は依然不通
+    sm.tick(router_ok=True, external_ok=False)
+    clock.advance(200)  # 合計600秒経過
+
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.DOWN
+    assert sm.reboot_reason == "upstream_prolonged"
+
+
+def test_upstream_prolonged_outage_resets_on_external_recovery():
+    clock = FakeClock()
+    sm, _ = make_sm(clock=clock, upstream_reboot_after_seconds=600)
+
+    sm.tick(router_ok=True, external_ok=False)
+    clock.advance(500)
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.NORMAL
+
+    # 外部が1回回復
+    sm.tick(router_ok=True, external_ok=True)
+    assert sm.state == RouterState.NORMAL
+
+    # 再び不通になってから200秒経過（合計では700秒だがリセットされたので未到達）
+    sm.tick(router_ok=True, external_ok=False)
+    clock.advance(200)
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.NORMAL
+
+
+def test_upstream_prolonged_outage_limited_connectivity_shortens_wait():
+    clock = FakeClock()
+    current_conn = ["limited"]
+    sm, _ = make_sm(
+        clock=clock,
+        upstream_reboot_after_seconds=600,
+        upstream_reboot_after_seconds_limited=300,
+        connectivity=lambda: current_conn[0],
+    )
+
+    sm.tick(router_ok=True, external_ok=False)
+    clock.advance(300)
+    sm.tick(router_ok=True, external_ok=False)
+    # limited のため 300秒で DOWN になる
+    assert sm.state == RouterState.DOWN
+    assert sm.reboot_reason == "upstream_prolonged"
+
+
+def test_upstream_prolonged_outage_skipped_when_host_link_down():
+    clock = FakeClock()
+    host_up = [False]
+    sm, _ = make_sm(
+        clock=clock,
+        upstream_reboot_after_seconds=600,
+        host_link_ok=lambda: host_up[0],
+    )
+
+    sm.tick(router_ok=True, external_ok=False)
+    clock.advance(700)
+    # 自PCのNICがdownなら再起動トリガーされない
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.NORMAL
+
+    # NICが復帰したら次のtickでトリガーされる
+    host_up[0] = True
+    sm.tick(router_ok=True, external_ok=False)
+    assert sm.state == RouterState.DOWN
+
+
+def test_session_reset_after_sustained_outage():
+    """長時間の障害（session_reset_seconds 経過）で retry_count がリセットされ、
+    再度電源サイクルが試行可能になること。"""
+    relay = FakeRelay()
+    clock = FakeClock()
+    sm, _ = make_sm(
+        relay=relay,
+        clock=clock,
+        max_retry=1,
+        reboot_lock_seconds=100,
+        failed_resume_seconds=200,
+        session_reset_seconds=1800,
+    )
+
+    # 1回目の再起動
+    run_failures(sm, 6)
+    sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.POWER_CYCLE_REQUEST
+    sm.perform_power_cycle()
+    assert sm.retry_count == 1
+    assert relay.calls == 1
+
+    # クールダウン後、復旧せず DOWN へ戻る
+    clock.advance(95)
+    sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.VERIFYING
+    for _ in range(6):
+        sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.DOWN
+
+    # retry_count >= max_retry (1) なので FAILED へ遷移し、再起動は行われない
+    sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.FAILED
+    assert relay.calls == 1
+
+    # failed_resume_seconds(200s) 経過で SUSPECT へ。まだ 1800s 未満なので retry_count=1 は維持
+    clock.advance(200)
+    sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.SUSPECT
+    assert sm.retry_count == 1
+
+    # 再び DOWN -> FAILED (再起動スキップ)
+    run_failures(sm, 6)
+    assert sm.state == RouterState.DOWN
+    sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.FAILED
+    assert relay.calls == 1
+
+    # セッション開始から 1800s 経過後に FAILED から復帰
+    clock.advance(1600)  # 合計 > 1800s
+    sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.SUSPECT
+    # retry_count が 0 にリセットされている！
+    assert sm.retry_count == 0
+
+    # 再度 DOWN になったとき、電源サイクルが実行可能になっている！
+    run_failures(sm, 6)
+    assert sm.state == RouterState.DOWN
+    sm.tick(router_ok=False, external_ok=False)
+    assert sm.state == RouterState.POWER_CYCLE_REQUEST
+    sm.perform_power_cycle()
+    assert relay.calls == 2
+    assert sm.retry_count == 1

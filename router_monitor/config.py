@@ -47,6 +47,9 @@ class Thresholds:
     max_retry: int
     verify_success_required: int
     failed_resume_seconds: int = 300
+    upstream_reboot_after_seconds: int = 0
+    upstream_reboot_after_seconds_limited: int = 0
+    session_reset_seconds: int = 1800
 
 
 @dataclass
@@ -71,6 +74,9 @@ class NotifyConfig:
     discord_webhook_url: str = ""       # from .env
     misskey_api_token: str = ""         # from .env
     misskey_instance_url: str = ""      # from .env
+    quiet_hours_enabled: bool = False
+    quiet_hours_start: str = "23:00"
+    quiet_hours_end: str = "07:00"
 
 
 @dataclass
@@ -142,6 +148,9 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
             max_retry=thresholds_raw["max_retry"],
             verify_success_required=thresholds_raw["verify_success_required"],
             failed_resume_seconds=thresholds_raw.get("failed_resume_seconds", 300),
+            upstream_reboot_after_seconds=thresholds_raw.get("upstream_reboot_after_seconds", 0),
+            upstream_reboot_after_seconds_limited=thresholds_raw.get("upstream_reboot_after_seconds_limited", 0),
+            session_reset_seconds=thresholds_raw.get("session_reset_seconds", 1800),
         )
 
         power_cycle = PowerCycle(
@@ -165,6 +174,9 @@ def load_config(config_path: str = "config.yaml", env_path: str = ".env") -> Con
             discord_webhook_url=os.environ.get("DISCORD_WEBHOOK_URL", ""),
             misskey_api_token=os.environ.get("MISSKEY_API_TOKEN", ""),
             misskey_instance_url=os.environ.get("MISSKEY_INSTANCE_URL", ""),
+            quiet_hours_enabled=notify_raw.get("quiet_hours_enabled", False),
+            quiet_hours_start=notify_raw.get("quiet_hours_start", "23:00"),
+            quiet_hours_end=notify_raw.get("quiet_hours_end", "07:00"),
         )
 
         logging_raw = raw["logging"]
@@ -224,6 +236,17 @@ def _validate(config: Config) -> None:
         problems.append("reboot_lock_seconds は 0 以上の整数である必要があります")
     if config.thresholds.failed_resume_seconds < 0:
         problems.append("failed_resume_seconds は 0 以上の整数である必要があります")
+    if config.thresholds.upstream_reboot_after_seconds < 0:
+        problems.append("upstream_reboot_after_seconds は 0 以上の整数である必要があります")
+    if config.thresholds.upstream_reboot_after_seconds_limited < 0:
+        problems.append("upstream_reboot_after_seconds_limited は 0 以上の整数である必要があります")
+    if config.thresholds.session_reset_seconds < 0:
+        problems.append("session_reset_seconds は 0 以上の整数である必要があります")
+    if (
+        config.thresholds.upstream_reboot_after_seconds > 0
+        and config.thresholds.upstream_reboot_after_seconds_limited > config.thresholds.upstream_reboot_after_seconds
+    ):
+        problems.append("upstream_reboot_after_seconds_limited は upstream_reboot_after_seconds 以下である必要があります")
     if config.thresholds.max_retry <= 0:
         problems.append("max_retry は 1 以上の整数である必要があります")
     if config.power_cycle.off_duration_seconds <= 0:

@@ -20,10 +20,12 @@ class UpstreamStateMachine:
     def __init__(
         self,
         fail_threshold: int = 6,
+        upstream_reboot_after_seconds: int = 0,
         logger: Optional[Callable] = None,
         notifier: Optional[Callable] = None,
     ):
         self.fail_threshold = fail_threshold
+        self.upstream_reboot_after_seconds = upstream_reboot_after_seconds
         self.log = logger or (lambda event, **kw: None)
         self.notify = notifier or (lambda msg: None)
 
@@ -38,10 +40,18 @@ class UpstreamStateMachine:
                 self.state = UpstreamState.DOWN
                 self.log("upstream_down", router_ok=True, external_ok=False)
                 if not self._notified:
-                    self.notify(
-                        "\u26A0\uFE0F \u30eb\u30fc\u30bf\u30fc\u306f\u751f\u5b58\u3057\u3066\u3044\u307e\u3059\u304c\u3001"
-                        "\u4e0a\u6d41\u56de\u7dda\u304c\u4e0d\u901a\u3067\u3059\u3002\u518d\u8d77\u52d5\u306f\u884c\u3044\u307e\u305b\u3093\u3002"
-                    )
+                    if self.upstream_reboot_after_seconds > 0:
+                        wait_min = max(1, self.upstream_reboot_after_seconds // 60)
+                        msg = (
+                            "\u26A0\uFE0F \u30eb\u30fc\u30bf\u30fc\u306f\u751f\u5b58\u3057\u3066\u3044\u307e\u3059\u304c\u3001"
+                            f"\u5916\u90e8\u56de\u7dda\u304c\u4e0d\u901a\u3067\u3059\u3002(\u7d99\u7d9a\u6642\u306f\u7d04{wait_min}\u5206\u5f8c\u306b\u518d\u8d77\u52d5\u3092\u8a66\u884c\u3057\u307e\u3059)"
+                        )
+                    else:
+                        msg = (
+                            "\u26A0\uFE0F \u30eb\u30fc\u30bf\u30fc\u306f\u751f\u5b58\u3057\u3066\u3044\u307e\u3059\u304c\u3001"
+                            "\u4e0a\u6d41\u56de\u7dda\u304c\u4e0d\u901a\u3067\u3059\u3002\u518d\u8d77\u52d5\u306f\u884c\u3044\u307e\u305b\u3093\u3002"
+                        )
+                    self.notify(msg)
                     self._notified = True
         elif external_ok:
             if self.state == UpstreamState.DOWN:

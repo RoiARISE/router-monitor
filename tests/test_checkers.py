@@ -59,3 +59,71 @@ def test_arp_check_missing_binary_returns_none():
 def test_arp_check_unexpected_exception_returns_none():
     with patch("router_monitor.checkers.subprocess.run", side_effect=OSError("boom")):
         assert arp_check("192.168.0.1", interface="eth0") is None
+
+
+def test_host_link_ok_up_and_down():
+    from router_monitor.checkers import host_link_ok
+    from unittest.mock import mock_open
+
+    # operstate が "up"
+    with patch("builtins.open", mock_open(read_data="up\n")):
+        assert host_link_ok("wlp1s0") is True
+
+    # operstate が "down"
+    with patch("builtins.open", mock_open(read_data="down\n")):
+        assert host_link_ok("wlp1s0") is False
+
+    # ファイル読み込み失敗時は安全に True
+    with patch("builtins.open", side_effect=FileNotFoundError()):
+        assert host_link_ok("wlp1s0") is True
+
+
+def test_nm_connectivity():
+    from router_monitor.checkers import nm_connectivity
+
+    cp_limited = MagicMock(spec=subprocess.CompletedProcess)
+    cp_limited.returncode = 0
+    cp_limited.stdout = "limited\n"
+
+    with patch("router_monitor.checkers.subprocess.run", return_value=cp_limited):
+        assert nm_connectivity() == "limited"
+
+    cp_fail = MagicMock(spec=subprocess.CompletedProcess)
+    cp_fail.returncode = 1
+    cp_fail.stdout = ""
+
+    with patch("router_monitor.checkers.subprocess.run", return_value=cp_fail):
+        assert nm_connectivity() is None
+
+    with patch("router_monitor.checkers.subprocess.run", side_effect=FileNotFoundError()):
+        assert nm_connectivity() is None
+
+
+def test_bluetooth_powered():
+    from router_monitor.checkers import bluetooth_powered
+
+    cp_yes = MagicMock(spec=subprocess.CompletedProcess)
+    cp_yes.returncode = 0
+    cp_yes.stdout = "Controller 3C:3B:AD:6B:F8:0F\n\tName: Test\n\tPowered: yes\n"
+
+    with patch("router_monitor.checkers.subprocess.run", return_value=cp_yes):
+        assert bluetooth_powered() is True
+
+    cp_no = MagicMock(spec=subprocess.CompletedProcess)
+    cp_no.returncode = 0
+    cp_no.stdout = "Controller 3C:3B:AD:6B:F8:0F\n\tName: Test\n\tPowered: no\n"
+
+    with patch("router_monitor.checkers.subprocess.run", return_value=cp_no):
+        assert bluetooth_powered() is False
+
+    cp_fail = MagicMock(spec=subprocess.CompletedProcess)
+    cp_fail.returncode = 1
+    cp_fail.stdout = ""
+
+    with patch("router_monitor.checkers.subprocess.run", return_value=cp_fail):
+        assert bluetooth_powered() is None
+
+    with patch("router_monitor.checkers.subprocess.run", side_effect=FileNotFoundError()):
+        assert bluetooth_powered() is None
+
+

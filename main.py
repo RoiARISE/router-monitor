@@ -20,7 +20,13 @@ from datetime import datetime
 from pathlib import Path
 
 from router_monitor.config import load_config, Config
-from router_monitor.checkers import ping, arp_check
+from router_monitor.checkers import (
+    ping,
+    arp_check,
+    host_link_ok,
+    nm_connectivity,
+    bluetooth_powered,
+)
 from router_monitor.state_machines.router_sm import RouterStateMachine, RouterState
 from router_monitor.state_machines.upstream_sm import UpstreamStateMachine
 from router_monitor.relay.home_assistant import RelayController
@@ -67,20 +73,31 @@ def run_cycle(
         external_ok=external_ok,
         router_state=router_sm.state.value,
         upstream_state=upstream_sm.state.value,
+        nm_connectivity=nm_connectivity(),
+        bt_powered=bluetooth_powered(),
     )
 
     upstream_sm.tick(router_ok, external_ok)
     router_sm.tick(router_ok, external_ok)
 
     if router_sm.awaiting_power_cycle:
+        reason = router_sm.reboot_reason
         success = router_sm.perform_power_cycle()
         if success:
             jlog.log_reboot(
                 attempt=router_sm.retry_count,
                 off_duration_seconds=config.power_cycle.off_duration_seconds,
+                reason=reason,
             )
             stats = get_reboot_stats(config.logging.reboots_path)
-            router_sm.notify(f"\U0001F501 \u30eb\u30fc\u30bf\u30fc\u3092\u518d\u8d77\u52d5\u3057\u307e\u3057\u305f\n{format_stats_message(stats)}")
+            reason_str = (
+                "（外部回線の長時間不通を検知）"
+                if reason == "upstream_prolonged"
+                else "（ルーター無応答を検知）"
+            )
+            router_sm.notify(
+                f"\U0001F501 \u30eb\u30fc\u30bf\u30fc\u3092\u518d\u8d77\u52d5\u3057\u307e\u3057\u305f{reason_str}\n{format_stats_message(stats)}"
+            )
 
 
 def main() -> int:
@@ -126,6 +143,11 @@ def main() -> int:
         verify_success_required=config.thresholds.verify_success_required,
         failed_resume_seconds=config.thresholds.failed_resume_seconds,
         off_duration_seconds=config.power_cycle.off_duration_seconds,
+        upstream_reboot_after_seconds=config.thresholds.upstream_reboot_after_seconds,
+        upstream_reboot_after_seconds_limited=config.thresholds.upstream_reboot_after_seconds_limited,
+        session_reset_seconds=config.thresholds.session_reset_seconds,
+        host_link_ok=host_link_ok,
+        connectivity=nm_connectivity,
         relay=relay,
         logger=jlog.as_logger_fn(),
         notifier=notifier.as_notifier_fn(),
@@ -133,6 +155,7 @@ def main() -> int:
 
     upstream_sm = UpstreamStateMachine(
         fail_threshold=config.thresholds.fail_threshold,
+        upstream_reboot_after_seconds=config.thresholds.upstream_reboot_after_seconds,
         logger=jlog.as_logger_fn(),
         notifier=notifier.as_notifier_fn(),
     )
@@ -163,7 +186,7 @@ def main() -> int:
                     reboot_count=reboot_stats["today"],
                     **ping_stats,
                 )
-                notifier.send(msg)
+                notifier.send(msg, force=True)
                 syslog.info("daily report: %s", msg)
                 _report_date = today
 

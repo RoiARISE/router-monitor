@@ -44,6 +44,11 @@ class RouterStateMachine:
         verify_success_required: int = 3,
         failed_resume_seconds: int = 300,
         off_duration_seconds: int = 30,
+        upstream_reboot_after_seconds: int = 0,
+        upstream_reboot_after_seconds_limited: int = 0,
+        session_reset_seconds: int = 1800,
+        host_link_ok: Optional[Callable[[], bool]] = None,
+        connectivity: Optional[Callable[[], Optional[str]]] = None,
         relay=None,
         logger: Optional[Callable] = None,
         notifier: Optional[Callable] = None,
@@ -56,6 +61,11 @@ class RouterStateMachine:
         self.verify_success_required = verify_success_required
         self.failed_resume_seconds = failed_resume_seconds
         self.off_duration_seconds = off_duration_seconds
+        self.upstream_reboot_after_seconds = upstream_reboot_after_seconds
+        self.upstream_reboot_after_seconds_limited = upstream_reboot_after_seconds_limited
+        self.session_reset_seconds = session_reset_seconds
+        self.host_link_ok = host_link_ok or (lambda: True)
+        self.connectivity = connectivity or (lambda: None)
 
         self.relay = relay
         self.log = logger or (lambda event, **kw: None)
@@ -67,6 +77,7 @@ class RouterStateMachine:
         self.verify_success_count = 0
         self.verify_fail_count = 0
         self.retry_count = 0
+        self.relay_fail_count = 0
         self.last_reboot_time: Optional[float] = None
         self._cooldown_until: Optional[float] = None
         self._failed_since: Optional[float] = None
@@ -74,11 +85,29 @@ class RouterStateMachine:
         self._power_cycle_request_since: Optional[float] = None
         # #4: FAILED 通知の重複抑制フラグ（障害セッション中1回のみ通知）
         self._failed_notified: bool = False
+        # 外部不通の継続時間追跡用 (monotonic timestamp)
+        self._external_down_since: Optional[float] = None
+        # 再起動の理由 ("router_unresponsive" または "upstream_prolonged")
+        self.reboot_reason: str = "router_unresponsive"
+        # 障害セッション開始時刻
+        self._session_start_time: Optional[float] = None
+
+    def _effective_upstream_wait(self) -> float:
+        """NM が「？」(limited) のときは短縮待ち時間を、それ以外は通常待ち時間を返す。"""
+        conn = self.connectivity()
+        if conn == "limited" and self.upstream_reboot_after_seconds_limited > 0:
+            return float(self.upstream_reboot_after_seconds_limited)
+        return float(self.upstream_reboot_after_seconds)
 
     # -- public API -----------------------------------------------------
 
     def tick(self, router_ok: bool, external_ok: bool) -> None:
         """監視サイクルごとに 1回呼び出され、最新の ping 結果を受け取ります。"""
+        if external_ok:
+            self._external_down_since = None
+        elif self._external_down_since is None:
+            self._external_down_since = self.clock()
+
         handler = getattr(self, f"_handle_{self.state.name.lower()}", None)
         if handler is None:
             raise RuntimeError(f"no handler for state {self.state}")
@@ -87,6 +116,24 @@ class RouterStateMachine:
     # -- state handlers ---------------------------------------------------
 
     def _handle_normal(self, router_ok: bool, external_ok: bool) -> None:
+        # 外部のみ不通が長時間継続しているかチェック (上流/WAN不通による再起動トリガー)
+        effective_wait = self._effective_upstream_wait()
+        if (
+            self.upstream_reboot_after_seconds > 0
+            and self._external_down_since is not None
+            and (self.clock() - self._external_down_since) >= effective_wait
+            and self.host_link_ok()
+        ):
+            self.reboot_reason = "upstream_prolonged"
+            self.log(
+                "upstream_prolonged_outage_detected",
+                elapsed_seconds=round(self.clock() - self._external_down_since, 1),
+                effective_wait=effective_wait,
+                connectivity=self.connectivity(),
+            )
+            self._enter_down()
+            return
+
         # NOTE: ここで fail_threshold に達した場合は DOWN の確定のみを行います。
         # 実際の電源サイクル要求は「次の tick」で _handle_down() 内で行われます。
         # これにより、POWER_CYCLE_REQUEST の設計通り「DOWN の確定」と
@@ -97,6 +144,7 @@ class RouterStateMachine:
         if not router_ok and not external_ok:
             self.fail_count += 1
             if self.fail_count >= self.fail_threshold:
+                self.reboot_reason = "router_unresponsive"
                 self._enter_down()
         else:
             # router_ok=True かつ external_ok=False → 上流の障害であり、ここでの関心事ではありません
@@ -119,11 +167,13 @@ class RouterStateMachine:
             return
 
         # ルーター自身は応答しているが外部が不通の場合（上流回線の障害）：
-        # 通常状態と同様に、ルーター自体の再起動は行わず NORMAL へ戻る。
+        # 上流長時間不通による再起動フラグ（reboot_reason == "upstream_prolonged"）が
+        # 立っていない限りは、ルーター自体の再起動は行わず NORMAL へ戻る。
         if router_ok and not external_ok:
-            self.log("router_up_but_upstream_down_cancelling_power_cycle")
-            self._enter_normal()
-            return
+            if self.reboot_reason != "upstream_prolonged":
+                self.log("router_up_but_upstream_down_cancelling_power_cycle")
+                self._enter_normal()
+                return
 
         if self.retry_limit_reached:
             self.log("retry_limit_reached_skipping_power_cycle", retry_count=self.retry_count)
@@ -186,6 +236,21 @@ class RouterStateMachine:
             self._enter_normal()
             return
         if self.clock() - self._failed_since >= self.failed_resume_seconds:
+            # session_reset_seconds 経過している場合は retry_count をリセットして再試行を可能にする
+            if (
+                self.session_reset_seconds > 0
+                and self._session_start_time is not None
+                and (self.clock() - self._session_start_time) >= self.session_reset_seconds
+            ):
+                self.log(
+                    "session_reset_after_sustained_outage",
+                    elapsed_seconds=round(self.clock() - self._session_start_time, 1),
+                    previous_retries=self.retry_count,
+                )
+                self.retry_count = 0
+                self._session_start_time = self.clock()
+                self._failed_notified = False
+
             self.state = RouterState.SUSPECT
             self.fail_count = 0
             self.log("resumed_monitoring_from_failed", retry_count=self.retry_count)
@@ -193,8 +258,10 @@ class RouterStateMachine:
     # -- transitions -------------------------------------------------------
 
     def _enter_down(self) -> None:
+        if self._session_start_time is None:
+            self._session_start_time = self.clock()
         self.state = RouterState.DOWN
-        self.log("router_down_confirmed", fail_count=self.fail_count)
+        self.log("router_down_confirmed", fail_count=self.fail_count, reason=self.reboot_reason)
 
     def _can_reboot(self) -> bool:
         if self.last_reboot_time is None:
@@ -222,11 +289,14 @@ class RouterStateMachine:
             self.relay.power_cycle(off_duration=self.off_duration_seconds)
         except Exception as exc:
             self.log("power_cycle_request_failed", error=str(exc))
-            self.retry_count += 1
+            self.relay_fail_count += 1
+            # 注意: リレー操作の失敗（スマートプラグとの通信失敗など）は、
+            # ルーターが再起動されたわけではないため retry_count を消費しない
             self._enter_failed()
             return False
 
         self.retry_count += 1
+        self.relay_fail_count = 0
         self.last_reboot_time = self.clock()
         self._cooldown_until = self.clock() + self.cooldown_seconds
         self.state = RouterState.POWER_CYCLE_WAIT
@@ -250,12 +320,16 @@ class RouterStateMachine:
             self._failed_notified = True
 
     def _enter_normal(self) -> None:
-        was_failing = self.retry_count > 0
+        was_failing = self.retry_count > 0 or self.relay_fail_count > 0
         self.state = RouterState.NORMAL
         self.fail_count = 0
         self.verify_success_count = 0
         self.verify_fail_count = 0
         self._failed_notified = False  # #4: 障害セッション終了でリセット
+        self.reboot_reason = "router_unresponsive"
+        self._external_down_since = None
+        self._session_start_time = None
+        self.relay_fail_count = 0
         if was_failing:
             self.log("failure_session_closed", total_retries=self.retry_count)
             self.notify(f"✅ ルーターを再起動しました（{self.retry_count}回目でネット安定を確認）")

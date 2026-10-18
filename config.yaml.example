@@ -11,6 +11,10 @@ thresholds:
   max_retry: 3
   verify_success_required: 3
   failed_resume_seconds: 300
+  # 外部のみ不通が長時間続いた場合の再起動設定 (0で無効化)
+  upstream_reboot_after_seconds: 600          # 通常時の外部不通継続時間 (秒)
+  upstream_reboot_after_seconds_limited: 300  # NetworkManagerが「？」(limited)の場合の短縮継続時間 (秒)
+  session_reset_seconds: 1800                 # 復旧しない障害が長引いた際、リトライ回数をリセットして再試行する間隔 (秒, 0で無効)
 
 interval_seconds: 30
 
@@ -21,13 +25,16 @@ home_assistant:
   base_url: "http://localhost:8123"
   entity_id: "switch.switchbot_plug_router"
   # token is loaded from .env (HA_TOKEN)
-  request_timeout_seconds: 10
+  request_timeout_seconds: 35
   retries: 3
   retry_interval_seconds: 5
 
 notify:
   discord_enabled: true
   misskey_enabled: false
+  quiet_hours_enabled: true  # 夜間の睡眠を妨げないよう即時通知を抑制
+  quiet_hours_start: "23:00"
+  quiet_hours_end: "07:00"
 
 logging:
   events_path: "data/events.jsonl"

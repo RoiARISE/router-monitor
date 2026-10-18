@@ -77,3 +77,18 @@ def test_total_blackout_does_not_send_recovery_notification():
     # 「復旧」通知は送られていないこと
     assert not any("復旧" in msg for msg in notified)
 
+
+def test_notification_mentions_reboot_when_configured():
+    notified = []
+    sm = UpstreamStateMachine(
+        fail_threshold=2,
+        upstream_reboot_after_seconds=600,
+        notifier=lambda msg: notified.append(msg),
+    )
+    sm.tick(router_ok=True, external_ok=False)
+    sm.tick(router_ok=True, external_ok=False)
+    assert len(notified) == 1
+    assert "再起動を試行します" in notified[0]
+    assert "10分後" in notified[0]
+
+

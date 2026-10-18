@@ -174,3 +174,77 @@ def test_validation_rejects_non_positive_numbers():
         with pytest.raises(ValueError, match="interval_seconds"):
             load_config(config_path, env_path)
 
+
+def test_upstream_reboot_thresholds_defaults_and_validation():
+    # デフォルトは 0, 0
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = _write(tmp, "config.yaml", VALID_YAML)
+        env_path = _write(tmp, ".env", VALID_ENV)
+        config = load_config(config_path, env_path)
+        assert config.thresholds.upstream_reboot_after_seconds == 0
+        assert config.thresholds.upstream_reboot_after_seconds_limited == 0
+
+    # 正常な設定値
+    custom_yaml = VALID_YAML.replace(
+        "verify_success_required: 3",
+        "verify_success_required: 3\n  upstream_reboot_after_seconds: 600\n  upstream_reboot_after_seconds_limited: 300",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = _write(tmp, "config.yaml", custom_yaml)
+        env_path = _write(tmp, ".env", VALID_ENV)
+        config = load_config(config_path, env_path)
+        assert config.thresholds.upstream_reboot_after_seconds == 600
+        assert config.thresholds.upstream_reboot_after_seconds_limited == 300
+
+    # 負の数値はエラー
+    neg_yaml = VALID_YAML.replace(
+        "verify_success_required: 3",
+        "verify_success_required: 3\n  upstream_reboot_after_seconds: -1",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = _write(tmp, "config.yaml", neg_yaml)
+        env_path = _write(tmp, ".env", VALID_ENV)
+        with pytest.raises(ValueError, match="upstream_reboot_after_seconds"):
+            load_config(config_path, env_path)
+
+    # limited > normal はエラー
+    inv_yaml = VALID_YAML.replace(
+        "verify_success_required: 3",
+        "verify_success_required: 3\n  upstream_reboot_after_seconds: 300\n  upstream_reboot_after_seconds_limited: 600",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = _write(tmp, "config.yaml", inv_yaml)
+        env_path = _write(tmp, ".env", VALID_ENV)
+        with pytest.raises(ValueError, match="upstream_reboot_after_seconds_limited は upstream_reboot_after_seconds 以下"):
+            load_config(config_path, env_path)
+
+
+def test_session_reset_and_quiet_hours_config():
+    # デフォルト値の確認
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = _write(tmp, "config.yaml", VALID_YAML)
+        env_path = _write(tmp, ".env", VALID_ENV)
+        config = load_config(config_path, env_path)
+        assert config.thresholds.session_reset_seconds == 1800
+        assert config.notify.quiet_hours_enabled is False
+        assert config.notify.quiet_hours_start == "23:00"
+        assert config.notify.quiet_hours_end == "07:00"
+
+    # カスタム設定
+    custom_yaml = VALID_YAML.replace(
+        "verify_success_required: 3",
+        "verify_success_required: 3\n  session_reset_seconds: 3600",
+    ).replace(
+        "discord_enabled: true",
+        "discord_enabled: true\n  quiet_hours_enabled: true\n  quiet_hours_start: '00:00'\n  quiet_hours_end: '06:00'",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = _write(tmp, "config.yaml", custom_yaml)
+        env_path = _write(tmp, ".env", VALID_ENV)
+        config = load_config(config_path, env_path)
+        assert config.thresholds.session_reset_seconds == 3600
+        assert config.notify.quiet_hours_enabled is True
+        assert config.notify.quiet_hours_start == "00:00"
+        assert config.notify.quiet_hours_end == "06:00"
+
+

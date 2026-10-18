@@ -85,6 +85,9 @@
 5. **VERIFYING (復旧検証)**: 復旧したかPingで確認。`verify_success_required` 回連続で成功すれば `NORMAL` へ復帰。失敗が続けば再度 `DOWN` へ。
 6. **FAILED (復旧失敗)**: リトライ上限に達した、あるいは致命的なエラーが起きた状態。通知を送り、一定時間後に監視（`SUSPECT`）を再開します。
 
+> [!TIP]
+> **外部回線・WANハングへの対応**: 通常、ルーター自身（LAN）が生きていて外部のみ不通の場合は上流障害と判定して再起動を抑制しますが、`upstream_reboot_after_seconds` を設定することで、外部不通が長時間（デフォルト10分、UbuntuでWiFiアイコンに「？」が出ている状態では5分に短縮）継続した際にルーター再起動を試行できます。自ホストのNICリンクダウン時は誤動作防止ガードが働きます。
+
 ---
 
 ## セットアップ手順
@@ -153,9 +156,16 @@ MISSKEY_INSTANCE_URL=
 | `thresholds.cooldown_seconds` | 再起動後にルーターの起動を待つ秒数 |
 | `thresholds.reboot_lock_seconds` | 再起動後に次の再起動を禁止するロック秒数 |
 | `thresholds.max_retry` | 障害発生時の最大再起動試行回数 |
+| `thresholds.upstream_reboot_after_seconds` | 外部のみ不通が継続した場合にルーター再起動を行う秒数（例: 600、0で無効） |
+| `thresholds.upstream_reboot_after_seconds_limited` | NetworkManagerが「？」(limited)検知時の短縮再起動秒数（例: 300） |
+| `thresholds.session_reset_seconds` | 復旧しない障害が長引いた際に再起動試行回数をリセットして再試行する間隔（秒、デフォルト1800=30分、0で無効） |
 | `home_assistant.base_url` | Home Assistant のURL（例: `http://localhost:8123`） |
 | `home_assistant.entity_id` | 操作するスマートプラグのエンティティID |
+| `home_assistant.request_timeout_seconds` | Home Assistant へのリクエストタイムアウト秒数（Bluetoothプラグ考慮で35推奨） |
 | `notify.discord_enabled` | Discord通知を有効にするか（true/false） |
+| `notify.quiet_hours_enabled` | 夜間（睡眠時間帯）の即時通知を抑制するか（true/false、デフォルトtrue） |
+| `notify.quiet_hours_start` | 夜間通知抑制の開始時刻（例: "23:00"） |
+| `notify.quiet_hours_end` | 夜間通知抑制の終了時刻（例: "07:00"） |
 
 #### 3. データディレクトリの作成
 

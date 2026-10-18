@@ -237,13 +237,20 @@ def cmd_reboots(config) -> None:
         print(f"  {gray('再起動記録がありません。')}\n")
         return
 
-    print(f"  {bold('日時'): <21}  {bold('試行'):^6}  {bold('OFF時間')}")
-    print(f"  {gray('─' * 21)}  {gray('─' * 6)}  {gray('─' * 8)}")
+    print(f"  {bold('日時'): <21}  {bold('試行'):^6}  {bold('OFF時間'): <8}  {bold('理由')}")
+    print(f"  {gray('─' * 21)}  {gray('─' * 6)}  {gray('─' * 8)}  {gray('─' * 18)}")
     for r in reboots:
-        ts  = (r.get("timestamp") or "")[:19].replace("T", " ")
-        att = str(r.get("attempt", "-"))
-        off = str(r.get("off_duration_seconds", "-")) + " 秒"
-        print(f"  {gray(ts)}  {yellow(att):^16}  {off}")
+        ts     = (r.get("timestamp") or "")[:19].replace("T", " ")
+        att    = str(r.get("attempt", "-"))
+        off    = str(r.get("off_duration_seconds", "-")) + " 秒"
+        reason = r.get("reason", "")
+        if reason == "upstream_prolonged":
+            reason_lbl = yellow("外部不通(長時間)")
+        elif reason == "router_unresponsive":
+            reason_lbl = red("ルーター無応答")
+        else:
+            reason_lbl = gray("ルーター無応答(従来)")
+        print(f"  {gray(ts)}  {yellow(att):^16}  {off: <8}  {reason_lbl}")
     print()
 
 

@@ -212,10 +212,10 @@ HTML = r"""<!DOCTYPE html>
     <div class="tbl-wrap">
       <table>
         <thead>
-          <tr><th>日時</th><th>試行</th><th>OFF時間</th></tr>
+          <tr><th>日時</th><th>試行</th><th>OFF時間</th><th>理由</th></tr>
         </thead>
         <tbody id="reboots-body">
-          <tr><td colspan="3" class="empty">読み込み中...</td></tr>
+          <tr><td colspan="4" class="empty">読み込み中...</td></tr>
         </tbody>
       </table>
     </div>
@@ -357,8 +357,14 @@ async function loadReboots() {
   const body = document.getElementById('reboots-body');
 
   if (!reboots.length) {
-    body.innerHTML = '<tr><td colspan="3" class="empty">再起動記録なし</td></tr>';
+    body.innerHTML = '<tr><td colspan="4" class="empty">再起動記録なし</td></tr>';
     return;
+  }
+
+  function fmtReason(reason) {
+    if (reason === 'upstream_prolonged') return '<span class="badge badge-orange">外部不通(長時間)</span>';
+    if (reason === 'router_unresponsive') return '<span class="badge badge-red">ルーター無応答</span>';
+    return '<span class="badge badge-gray">ルーター無応答</span>';
   }
 
   body.innerHTML = reboots.map(r => `
@@ -366,6 +372,7 @@ async function loadReboots() {
       <td style="white-space:nowrap;color:var(--muted)">${fmtTs(r.timestamp)}</td>
       <td>${r.attempt || '-'} 回目</td>
       <td>${r.off_duration_seconds || '-'} 秒</td>
+      <td>${fmtReason(r.reason)}</td>
     </tr>
   `).join('');
 }

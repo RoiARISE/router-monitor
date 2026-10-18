@@ -120,3 +120,52 @@ def test_notifier_from_config_builds_both_when_both_enabled():
     )
     notifier = Notifier.from_config(config)
     assert len(notifier._channels) == 2
+
+
+def test_quiet_hours_detection():
+    from datetime import time as dtime
+    from router_monitor.notify import is_in_quiet_hours
+
+    # 23:00 〜 07:00 (日付またぎ)
+    assert is_in_quiet_hours(dtime(23, 30), "23:00", "07:00") is True
+    assert is_in_quiet_hours(dtime(4, 0), "23:00", "07:00") is True
+    assert is_in_quiet_hours(dtime(6, 59), "23:00", "07:00") is True
+    assert is_in_quiet_hours(dtime(7, 0), "23:00", "07:00") is False
+    assert is_in_quiet_hours(dtime(12, 0), "23:00", "07:00") is False
+    assert is_in_quiet_hours(dtime(22, 59), "23:00", "07:00") is False
+
+
+def test_notifier_suppresses_during_quiet_hours():
+    from datetime import time as dtime
+    from unittest.mock import MagicMock
+
+    sent = []
+    ch = MagicMock()
+    ch.send = lambda msg: sent.append(msg)
+
+    current_time = [dtime(4, 0)]  # 04:00 (夜間)
+
+    notifier = Notifier(
+        [ch],
+        quiet_hours_enabled=True,
+        quiet_hours_start="23:00",
+        quiet_hours_end="07:00",
+        now_fn=lambda: current_time[0],
+    )
+
+    # 夜間は抑制される
+    notifier.send("alert at 4am")
+    assert len(sent) == 0
+
+    # force=True なら夜間でも送信される
+    notifier.send("daily report", force=True)
+    assert len(sent) == 1
+    assert sent[0] == "daily report"
+
+    # 昼間 (12:00) になれば通常通り送信される
+    current_time[0] = dtime(12, 0)
+    notifier.send("daytime alert")
+    assert len(sent) == 2
+    assert sent[1] == "daytime alert"
+
+
